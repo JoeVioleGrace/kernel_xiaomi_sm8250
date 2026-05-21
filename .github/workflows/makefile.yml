@@ -1,0 +1,65 @@
+name: Build Kernel Poco F3 (alioth)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ksu-next-a16
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison lld llvm clang libssl-dev libelf-dev python3-pip
+          sudo pip3 install git-repo
+
+      - name: Set up Toolchain
+        run: |
+          mkdir -p toolchain
+          cd toolchain
+          wget https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+          tar -xf clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz --strip-components=1
+          cd ..
+          echo "$(pwd)/toolchain/bin" >> $GITHUB_PATH
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
+          
+          make alioth_defconfig
+          make -j$(nproc) LLVM=1 LLVM_IAS=1
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          # Jika ada dtbo.img, tambahkan juga
+          if [ -f arch/arm64/boot/dtbo.img ]; then
+            cp arch/arm64/boot/dtbo.img AnyKernel3/
+          fi
+          cd AnyKernel3
+          # Sesuaikan AnyKernel3 untuk alioth
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          zip -r ../kernel-alioth-ksu-next.zip *
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-alioth-ksu-next
+          path: kernel-alioth-ksu-next.zip
